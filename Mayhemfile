@@ -1,0 +1,7 @@
+project: cakelisp
+target: cakelisp
+testsuite:
+  - file://test.cake
+
+cmds:
+  - cmd: /repo/bin/cakelisp @@
