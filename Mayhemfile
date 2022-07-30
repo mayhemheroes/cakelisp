@@ -4,4 +4,4 @@ testsuite:
   - file://test.cake
 
 cmds:
-  - cmd: /repo/bin/cakelisp @@
+  - cmd: /cakelisp @@
