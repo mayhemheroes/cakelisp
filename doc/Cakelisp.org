@@ -2,6 +2,8 @@
 
 This document aspires to be one page of everything you need to know to learn the Cakelisp language. I liked how [[https://ziglang.org/documentation/master/][Zig]] is all on one page, so I'm going to emulate that here.
 
+*This document is still a work in progress.* For now, you will need to use the ~--list-built-ins-details~ command and read existing Cakelisp code (see ~test/~, ~runtime/~, and [[https://macoy.me/code/macoy/gamelib][GameLib]] for examples) in order to learn all the things you can do with Cakelisp.
+
 This doesn't cover the internal workings of the Cakelisp transpiler. See [[file:Internals.org][Internals.org]] for that information.
 
 Cakelisp is not intended to be an easy language for beginners. You should already have a strong grasp of either C or C++, because many functions and idioms used are actually straight from C/C++. Cakelisp is intended for people who already know C/C++ but want more features on top of the language.
@@ -140,8 +142,8 @@ The keyword ~&variable-arguments can be used to create a function with variadic 
 * Variables
 The following invocations will declare variables:
 - ~var~: Module- or body-scope local. This is the most-used variable type
-- ~global-var~: Only valid in module-scope. Defines a variable accessible to any module which imports the module with the definition
-- ~static-var~: Only valid within functions. Defines a ~static~ variable, i.e. a variable which holds its value even after the function's stack frame is popped
+- ~var-global~: Only valid in module-scope. Defines a variable accessible to any module which imports the module with the definition
+- ~var-static~: Only valid within functions. Defines a ~static~ variable, i.e. a variable which holds its value even after the function's stack frame is popped
 
 Use ~set~ to modify variables:
 #+BEGIN_SRC lisp

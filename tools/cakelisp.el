@@ -17,6 +17,8 @@
     (put 'defstruct 'lisp-indent-function 1)
 
     (put 'var 'lisp-indent-function 2)
+    (put 'var-static 'lisp-indent-function 2)
+    (put 'var-global 'lisp-indent-function 2)
     ;;(put 'block 'lisp-indent-function 3) ;; Doesn't work because block is special (always expects 1)
 
     (put 'tokenize-push 'lisp-indent-function 1)
@@ -32,6 +34,8 @@
     (put 'c-for 'lisp-indent-function 3)
 
     (put 'run-process-sequential-or 'lisp-indent-function 1)
+    (put 'runtime-run-process-sequential-or 'lisp-indent-function 1)
+    (put 'runtime-run-process-sequential-with-output-or 'lisp-indent-function 2)
     (put 'run-process-start-or 'lisp-indent-function 2)
 
     (put 'if-c-preprocessor-defined 'lisp-indent-function 1)
@@ -40,6 +44,8 @@
 
     (put 'defenum 'lisp-indent-function 1)
     (put 'defenum-local 'lisp-indent-function 1)
+
+    (put 'defer 'lisp-indent-function 0)
 
     ;; Keywords
     ;; "(def[a-zA-Z0-9-]*" all define keywords
