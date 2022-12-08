@@ -1,0 +1,6 @@
+project: cakelisp
+target: printindenttodepth
+
+cmds:
+  - cmd: /fuzz_printIndentToDepth
+    libfuzzer: true
