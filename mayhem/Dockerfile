@@ -7,6 +7,7 @@ COPY . /repo
 WORKDIR /repo
 RUN chmod +x Build.sh
 RUN sed -i '/rm/d' Build.sh
+RUN sed -i 's/"-Wall"//' Bootstrap.cake
 RUN ./Build.sh
 RUN rm /repo/Main.o
 RUN clang++ /repo/mayhem/fuzz_printIndentToDepth.cpp /repo/*.o -fsanitize=fuzzer,address -I /repo/src/ -o /fuzz
