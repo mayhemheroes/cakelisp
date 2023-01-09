@@ -407,8 +407,10 @@ void makeTargetPlatformVersionArgument(char* resolvedArgumentOut, int resolvedAr
 #endif
 }
 
-void buildWriteCacheFile(const char* buildOutputDir, ArtifactCrcTable& cachedCommandCrcs,
-                         ArtifactCrcTable& newCommandCrcs)
+static void buildWriteCacheFile(const char* buildOutputDir, ArtifactCrcTable& cachedCommandCrcs,
+                                ArtifactCrcTable& newCommandCrcs,
+                                HashedSourceArtifactCrcTable& sourceArtifactFileCrcs,
+                                ArtifactCrcTable& headerCrcCache)
 {
 	char outputFilename[MAX_PATH_LENGTH] = {0};
 	if (!outputFilenameFromSourceFilename(buildOutputDir, "Cache", "cake", outputFilename,
@@ -429,15 +431,43 @@ void buildWriteCacheFile(const char* buildOutputDir, ArtifactCrcTable& cachedCom
 	std::vector<Token> outputTokens;
 	const Token openParen = {TokenType_OpenParen, EmptyString, "Build.cpp", 1, 0, 0};
 	const Token closeParen = {TokenType_CloseParen, EmptyString, "Build.cpp", 1, 0, 0};
-	const Token crcInvoke = {TokenType_Symbol, "command-crc", "Build.cpp", 1, 0, 0};
+	const Token commandCrcInvoke = {TokenType_Symbol, "command-crc", "Build.cpp", 1, 0, 0};
+	const Token headerCrcInvoke = {TokenType_Symbol, "command-crc", "Build.cpp", 1, 0, 0};
+	const Token sourceArtifactInvoke = {TokenType_Symbol, "source-artifact-crc", "Build.cpp", 1, 0, 0};
 
-	for (ArtifactCrcTablePair& crcPair : outputCrcs)
+	struct
+	{
+		const Token crcInvoke;
+		ArtifactCrcTable* sourceTable;
+	} artifactCrcTablesToWrite[] = {
+	    {{TokenType_Symbol, "command-crc", "Build.cpp", 1, 0, 0}, &outputCrcs},
+	    {{TokenType_Symbol, "header-crc", "Build.cpp", 1, 0, 0}, &headerCrcCache}};
+	for (unsigned int i = 0; i < ArraySize(artifactCrcTablesToWrite); ++i)
+	{
+		for (ArtifactCrcTablePair& crcPair : *artifactCrcTablesToWrite[i].sourceTable)
+		{
+			outputTokens.push_back(openParen);
+			outputTokens.push_back(artifactCrcTablesToWrite[i].crcInvoke);
+
+			Token artifactName = {TokenType_String, crcPair.first, "Build.cpp", 1, 0, 0};
+			outputTokens.push_back(artifactName);
+
+			Token crcToken = {
+			    TokenType_Symbol, std::to_string(crcPair.second), "Build.cpp", 1, 0, 0};
+			outputTokens.push_back(crcToken);
+
+			outputTokens.push_back(closeParen);
+		}
+	}
+
+	for (const HashedSourceArtifactCrcTablePair& crcPair : sourceArtifactFileCrcs)
 	{
 		outputTokens.push_back(openParen);
-		outputTokens.push_back(crcInvoke);
+		outputTokens.push_back(sourceArtifactInvoke);
 
-		Token artifactName = {TokenType_String, crcPair.first, "Build.cpp", 1, 0, 0};
-		outputTokens.push_back(artifactName);
+		Token sourceArtifactName = {
+		    TokenType_String, std::to_string(crcPair.first), "Build.cpp", 1, 0, 0};
+		outputTokens.push_back(sourceArtifactName);
 
 		Token crcToken = {TokenType_Symbol, std::to_string(crcPair.second), "Build.cpp", 1, 0, 0};
 		outputTokens.push_back(crcToken);
@@ -464,7 +494,9 @@ void buildWriteCacheFile(const char* buildOutputDir, ArtifactCrcTable& cachedCom
 }
 
 // Returns false if there were errors; the file not existing is not an error
-bool buildReadCacheFile(const char* buildOutputDir, ArtifactCrcTable& cachedCommandCrcs)
+bool buildReadCacheFile(const char* buildOutputDir, ArtifactCrcTable& cachedCommandCrcs,
+                        HashedSourceArtifactCrcTable& sourceArtifactFileCrcs,
+                        ArtifactCrcTable& headerCrcCache)
 {
 	char inputFilename[MAX_PATH_LENGTH] = {0};
 	if (!outputFilenameFromSourceFilename(buildOutputDir, "Cache", "cake", inputFilename,
@@ -492,24 +524,34 @@ bool buildReadCacheFile(const char* buildOutputDir, ArtifactCrcTable& cachedComm
 		{
 			int endInvocationIndex = FindCloseParenTokenIndex((*tokens), i);
 			const Token& invocationToken = (*tokens)[i + 1];
+			int keyIndex =
+			    getExpectedArgument("expected artifact name or key", (*tokens), i, 1, endInvocationIndex);
+			if (keyIndex == -1)
+			{
+				delete tokens;
+				return false;
+			}
+			int crcIndex = getExpectedArgument("expected crc", (*tokens), i, 2, endInvocationIndex);
+			if (crcIndex == -1)
+			{
+				delete tokens;
+				return false;
+			}
+
 			if (invocationToken.contents.compare("command-crc") == 0)
 			{
-				int artifactIndex = getExpectedArgument("expected artifact name", (*tokens), i, 1,
-				                                        endInvocationIndex);
-				if (artifactIndex == -1)
-				{
-					delete tokens;
-					return false;
-				}
-				int crcIndex =
-				    getExpectedArgument("expected crc", (*tokens), i, 2, endInvocationIndex);
-				if (crcIndex == -1)
-				{
-					delete tokens;
-					return false;
-				}
-
-				cachedCommandCrcs[(*tokens)[artifactIndex].contents] =
+				cachedCommandCrcs[(*tokens)[keyIndex].contents] =
+				    static_cast<uint32_t>(std::stoul((*tokens)[crcIndex].contents));
+			}
+			else if (invocationToken.contents.compare("header-crc") == 0)
+			{
+				headerCrcCache[(*tokens)[keyIndex].contents] =
+				    static_cast<uint32_t>(std::stoul((*tokens)[crcIndex].contents));
+			}
+			else if (invocationToken.contents.compare("source-artifact-crc") == 0)
+			{
+				sourceArtifactFileCrcs[static_cast<uint32_t>(
+				    std::stoul((*tokens)[keyIndex].contents))] =
 				    static_cast<uint32_t>(std::stoul((*tokens)[crcIndex].contents));
 			}
 			else
@@ -528,6 +570,32 @@ bool buildReadCacheFile(const char* buildOutputDir, ArtifactCrcTable& cachedComm
 	return true;
 }
 
+void buildReadMergeWriteCacheFile(const char* buildOutputDir, ArtifactCrcTable& cachedCommandCrcs,
+                                  ArtifactCrcTable& newCommandCrcs,
+                                  HashedSourceArtifactCrcTable& sourceArtifactFileCrcs,
+                                  ArtifactCrcTable& changedHeaderCrcCache)
+{
+	ArtifactCrcTable mergedCachedCommandCrcs;
+	HashedSourceArtifactCrcTable mergedSourceArtifactFileCrcs;
+	ArtifactCrcTable mergedLoadedHeaderCrcCache;
+
+	buildReadCacheFile(buildOutputDir, mergedCachedCommandCrcs, mergedSourceArtifactFileCrcs,
+	                   mergedLoadedHeaderCrcCache);
+
+	// Merge, using our version as latest
+	for (ArtifactCrcTablePair& crcPair : newCommandCrcs)
+		mergedCachedCommandCrcs[crcPair.first] = crcPair.second;
+	for (const HashedSourceArtifactCrcTablePair& crcPair : sourceArtifactFileCrcs)
+	{
+		mergedSourceArtifactFileCrcs[crcPair.first] = crcPair.second;
+	}
+	for (ArtifactCrcTablePair& crcPair : changedHeaderCrcCache)
+		mergedLoadedHeaderCrcCache[crcPair.first] = crcPair.second;
+
+	buildWriteCacheFile(buildOutputDir, mergedCachedCommandCrcs, newCommandCrcs,
+	                    mergedSourceArtifactFileCrcs, mergedLoadedHeaderCrcCache);
+}
+
 // It is essential to scan the #include files to determine if any of the headers have been modified,
 // because changing them could require a rebuild (for e.g., you change the size or order of a struct
 // declared in a header; all source files now need updated sizeof calls). This is annoyingly
@@ -540,10 +608,15 @@ bool buildReadCacheFile(const char* buildOutputDir, ArtifactCrcTable& cachedComm
 // objects is faster. We must find the absolute time because different build objects may be more
 // recently modified than others, so they shouldn't get built. If we wanted to early out, we cannot
 // share the cache because of this
-static FileModifyTime GetMostRecentIncludeModified_Recursive(
-    const std::vector<std::string>& searchDirectories, const char* filename,
-    const char* includedInFile, HeaderModificationTimeTable& isModifiedCache)
+static bool AreIncludedHeadersModified_Recursive(const std::vector<std::string>& searchDirectories,
+                                                 const char* filename, const char* includedInFile,
+                                                 HeaderModificationTimeTable& isModifiedCache,
+                                                 ArtifactCrcTable& loadedHeaderCrcCache,
+                                                 ArtifactCrcTable& changedHeaderCrcCache,
+                                                 FileModifyTime* mostRecentModifiedTimeOut)
 {
+	bool headerCrcDiffersFromExpected = false;
+
 	// Already cached?
 	{
 		const HeaderModificationTimeTable::iterator findIt = isModifiedCache.find(filename);
@@ -551,7 +624,12 @@ static FileModifyTime GetMostRecentIncludeModified_Recursive(
 		{
 			if (logging.includeScanning)
 				Logf("    > cache hit %s\n", filename);
-			return findIt->second;
+			if (mostRecentModifiedTimeOut)
+				*mostRecentModifiedTimeOut = findIt->second;
+			bool isCachedCrcDifferent = (changedHeaderCrcCache.find(filename) != changedHeaderCrcCache.end());
+			if (logging.includeScanning && isCachedCrcDifferent)
+				Logf("   >>> %s already marked as changed\n", filename);
+			return isCachedCrcDifferent;
 		}
 	}
 
@@ -567,7 +645,10 @@ static FileModifyTime GetMostRecentIncludeModified_Recursive(
 		// not found (else you'd get full rebuilds every time if you had even one header not found)
 		isModifiedCache[filename] = 0;
 
-		return 0;
+		if (mostRecentModifiedTimeOut)
+			*mostRecentModifiedTimeOut = 0;
+		// Don't make unfound headers dirty the build
+		return false;
 	}
 
 	// Is the resolved path cached?
@@ -575,7 +656,16 @@ static FileModifyTime GetMostRecentIncludeModified_Recursive(
 		const HeaderModificationTimeTable::iterator findIt =
 		    isModifiedCache.find(resolvedPathBuffer);
 		if (findIt != isModifiedCache.end())
-			return findIt->second;
+		{
+			if (logging.includeScanning)
+				Logf("    > resolved path cache hit %s\n", filename);
+			if (mostRecentModifiedTimeOut)
+				*mostRecentModifiedTimeOut = findIt->second;
+			bool isCachedCrcDifferent = (changedHeaderCrcCache.find(filename) != changedHeaderCrcCache.end());
+			if (logging.includeScanning && isCachedCrcDifferent)
+				Logf("   >>> %s already marked as changed\n", filename);
+			return isCachedCrcDifferent;
+		}
 	}
 
 	if (logging.includeScanning)
@@ -587,45 +677,95 @@ static FileModifyTime GetMostRecentIncludeModified_Recursive(
 	isModifiedCache[filename] = thisModificationTime;
 
 	FileModifyTime mostRecentModTime = thisModificationTime;
+	uint32_t crc = 0;
 
 	FILE* file = fileOpen(resolvedPathBuffer, "rb");
 	if (!file)
+	{
+		Logf("warning: failed to open file %s even though it should exist\n", resolvedPathBuffer);
+		if (mostRecentModifiedTimeOut)
+			*mostRecentModifiedTimeOut = 0;
 		return false;
+	}
 	char lineBuffer[2048] = {0};
 	while (fgets(lineBuffer, sizeof(lineBuffer), file))
 	{
+		unsigned int lineLength = 0;
+
 		// I think '#   include' is valid
 		if (lineBuffer[0] != '#' || !strstr(lineBuffer, "include"))
-			continue;
-
-		char foundInclude[MAX_PATH_LENGTH] = {0};
-		char* foundIncludeWrite = foundInclude;
-		bool foundOpening = false;
-		for (char* c = &lineBuffer[0]; *c != '\0'; ++c)
 		{
-			if (foundOpening)
+			// No include on this line; get the length for the CRC
+			lineLength = strlen(lineBuffer);
+		}
+		else
+		{
+			char foundInclude[MAX_PATH_LENGTH] = {0};
+			char* foundIncludeWrite = foundInclude;
+			bool foundOpening = false;
+			for (char* c = &lineBuffer[0]; *c != '\0'; ++c)
 			{
-				if (*c == '\"' || *c == '>')
+				++lineLength;
+				if (foundOpening)
 				{
-					if (logging.includeScanning)
-						Logf("\t%s include: %s\n", resolvedPathBuffer, foundInclude);
+					if (*c == '\"' || *c == '>')
+					{
+						if (logging.includeScanning)
+							Logf("\t%s include: %s\n", resolvedPathBuffer, foundInclude);
 
-					FileModifyTime includeModifiedTime = GetMostRecentIncludeModified_Recursive(
-					    searchDirectories, foundInclude, resolvedPathBuffer, isModifiedCache);
+						FileModifyTime includeModifiedTime = 0;
+						headerCrcDiffersFromExpected |= AreIncludedHeadersModified_Recursive(
+						    searchDirectories, foundInclude, resolvedPathBuffer, isModifiedCache,
+						    loadedHeaderCrcCache, changedHeaderCrcCache, &includeModifiedTime);
 
-					if (logging.includeScanning)
-						Logf("\t tree modificaiton time: " FORMAT_FILETIME "\n",
-						     includeModifiedTime);
+						if (logging.includeScanning)
+							Logf("\t tree modification time: " FORMAT_FILETIME "\n",
+							     includeModifiedTime);
 
-					if (includeModifiedTime > mostRecentModTime)
-						mostRecentModTime = includeModifiedTime;
+						if (includeModifiedTime > mostRecentModTime)
+							mostRecentModTime = includeModifiedTime;
+					}
+
+					*foundIncludeWrite = *c;
+					++foundIncludeWrite;
 				}
-
-				*foundIncludeWrite = *c;
-				++foundIncludeWrite;
+				else if (*c == '\"' || *c == '<')
+					foundOpening = true;
 			}
-			else if (*c == '\"' || *c == '<')
-				foundOpening = true;
+		}
+
+		crc32(lineBuffer, lineLength, &crc);
+	}
+
+	if (changedHeaderCrcCache.find(filename) != changedHeaderCrcCache.end())
+	{
+		headerCrcDiffersFromExpected |= true;
+		if (logging.includeScanning)
+			Logf("   >>> Header %s already marked as different.\n", filename);
+	}
+	else
+	{
+		ArtifactCrcTable::iterator findIt = loadedHeaderCrcCache.find(filename);
+		if (findIt != loadedHeaderCrcCache.end())
+		{
+			bool isCrcChanged = (findIt->second != crc);
+			headerCrcDiffersFromExpected |= isCrcChanged;
+			// We only want to make an entry if we no longer match
+			if (isCrcChanged)
+			{
+				changedHeaderCrcCache[filename] = crc;
+				if (logging.includeScanning)
+					Logf("   >>> Header %s crc %u no longer matches %u.\n", filename, crc, findIt->second);
+			}
+		}
+		else
+		{
+			// We don't know anything about this header yet; we must assume it has "changed" and we
+			// need to rebuild whatever is dependent on it
+			headerCrcDiffersFromExpected |= true;
+			changedHeaderCrcCache[filename] = crc;
+			if (logging.includeScanning)
+				Logf("   >>> Header %s was unknown. Marking as changed.\n", filename);
 		}
 	}
 
@@ -634,7 +774,9 @@ static FileModifyTime GetMostRecentIncludeModified_Recursive(
 
 	fclose(file);
 
-	return mostRecentModTime;
+	if (mostRecentModifiedTimeOut)
+		*mostRecentModifiedTimeOut = mostRecentModTime;
+	return headerCrcDiffersFromExpected;
 }
 
 // commandArguments should have terminating null sentinel
@@ -682,18 +824,19 @@ bool cppFileNeedsBuild(EvaluatorEnvironment& environment, const char* sourceFile
 	// We could avoid doing this work, but it makes it easier to log if we do it regardless of
 	// commandEqualsCached invalidating our cache anyways
 	bool canUseCache = canUseCachedFile(environment, sourceFilename, artifactFilename);
-	bool headersModified = false;
+	// Note that I use the .o as "includedBy" because our header may not have needed any
+	// changes if our include changed. We have to use the .o as the time reference that
+	// we've rebuilt
+	FileModifyTime mostRecentHeaderModTime = 0;
+	bool headersModified = AreIncludedHeadersModified_Recursive(
+	    headerSearchDirectories, sourceFilename,
+	    /*includedBy*/ nullptr, headerModifiedCache, environment.loadedHeaderCrcCache,
+	    environment.changedHeaderCrcCache, &mostRecentHeaderModTime);
+
 	if (commandEqualsCached && canUseCache)
 	{
-		// Note that I use the .o as "includedBy" because our header may not have needed any
-		// changes if our include changed. We have to use the .o as the time reference that
-		// we've rebuilt
-		FileModifyTime mostRecentHeaderModTime =
-		    GetMostRecentIncludeModified_Recursive(headerSearchDirectories, sourceFilename,
-		                                           /*includedBy*/ nullptr, headerModifiedCache);
-
 		FileModifyTime artifactModTime = fileGetLastModificationTime(artifactFilename);
-		if (artifactModTime >= mostRecentHeaderModTime)
+		if (artifactModTime >= mostRecentHeaderModTime && !headersModified)
 		{
 			if (logging.buildProcess)
 				Logf("Skipping compiling %s (using cached object)\n", sourceFilename);
@@ -701,12 +844,13 @@ bool cppFileNeedsBuild(EvaluatorEnvironment& environment, const char* sourceFile
 		}
 		else
 		{
-			headersModified = true;
 			if (logging.includeScanning || logging.buildProcess)
 			{
 				Logf("--- Must rebuild %s (header files modified)\n", sourceFilename);
-				Logf("Artifact: " FORMAT_FILETIME " Most recent header: " FORMAT_FILETIME "\n",
-				     artifactModTime, mostRecentHeaderModTime);
+				Logf("Artifact: " FORMAT_FILETIME " Most recent header: " FORMAT_FILETIME
+				     " reason: %s\n",
+				     artifactModTime, mostRecentHeaderModTime,
+				     headersModified ? "crcs don't match" : "timestamps are newer");
 			}
 		}
 	}

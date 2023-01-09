@@ -330,11 +330,19 @@ struct EvaluatorEnvironment
 
 	// Shared across comptime build rounds
 	HeaderModificationTimeTable comptimeHeaderModifiedCache;
+	ArtifactCrcTable loadedHeaderCrcCache;
+	// Only headers which have CRCs that do not match the values in loadedHeaderCrcCache will end up
+	// here. This is then written out along with the loadedHeaderCrcCache.
+	ArtifactCrcTable changedHeaderCrcCache;
 	// If an existing cached build was run, check the current build's commands against the previous
 	// commands via CRC comparison. This ensures changing commands will cause rebuilds
 	ArtifactCrcTable comptimeCachedCommandCrcs;
 	// If any artifact no longer matches its crc in cachedCommandCrcs, the change will appear here
 	ArtifactCrcTable comptimeNewCommandCrcs;
+
+	// We cannot fully trust file modification times. Track the file contents hash to be sure
+	ArtifactCrcTable cachedIntraBuildFileCrcs;
+	HashedSourceArtifactCrcTable sourceArtifactFileCrcs;
 
 	// When a definition is replaced (e.g. by ReplaceAndEvaluateDefinition()), the original
 	// definition's output is still used, but no longer has a definition to keep track of it. This
@@ -499,6 +507,9 @@ CAKELISP_API bool GetCompileTimeVariable(EvaluatorEnvironment& environment, cons
 // --ignore-cache
 bool canUseCachedFile(EvaluatorEnvironment& environment, const char* filename,
                       const char* reference);
+
+void setSourceArtifactCrc(EvaluatorEnvironment& environment, const char* source,
+                          const char* artifact);
 
 const char* objectTypeToString(ObjectType type);
 
